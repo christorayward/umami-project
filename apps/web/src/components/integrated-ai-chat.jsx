@@ -245,7 +245,7 @@ ${recipe.steps.map((s, i) => `${i + 1}. ${s}`).join("\n")}
 						type="submit"
 						className="rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
 					>
-						Send
+						Enviar
 					</button>
 
 				</form>
