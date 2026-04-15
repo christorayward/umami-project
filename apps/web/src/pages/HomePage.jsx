@@ -9,8 +9,28 @@ import Footer from '@/components/Footer';
 import RecipeCard from '@/components/RecipeCard';
 import RecipeFilter from '@/components/RecipeFilter';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useAuth } from "@/contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
+
 
 export default function HomePage() {
+  const navigate = useNavigate();
+  const { currentUser } = useAuth();
+
+  const handleClick = () => {
+    if (!currentUser) {
+      navigate("/login");
+      return;
+    }
+
+    if (currentUser.subscriptionTier !== "premium") {
+      alert("Esta función es solo para usuarios premium ✨");
+      return;
+    }
+
+    navigate("/ai-recipes");
+  };
+
   const [recipes, setRecipes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({
@@ -60,6 +80,7 @@ export default function HomePage() {
       setLoading(false);
     }
   };
+
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -169,12 +190,22 @@ export default function HomePage() {
       <section id="recipes" className="py-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">
-            <h2 className="text-4xl md:text-5xl font-bold mb-4 leading-tight" style={{ letterSpacing: '-0.02em' }}>
+            <h2 className="text-4xl md:text-5xl font-bold mb-4 leading-tight">
               Explorar recetas
             </h2>
-            <p className="text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
+
+            <p className="text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed mb-6">
               Encuentra el plato perfecto para cualquier ocasión
             </p>
+
+            {/* 🔥 IA GENERATOR */}
+
+            <button
+              onClick={handleClick}
+              className="bg-primary text-white px-6 py-2 rounded-lg font-medium hover:opacity-90 transition"
+            >
+              Generar con IA ✨
+            </button>
           </div>
 
           <RecipeFilter filters={filters} setFilters={setFilters} />

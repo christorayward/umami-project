@@ -1,6 +1,6 @@
 import Pocketbase from 'pocketbase';
 
-const POCKETBASE_API_URL = "http://127.0.0.1:8090";
+const POCKETBASE_API_URL = "https://pocketbase-app-production-d1b7.up.railway.app";
 
 const pocketbaseClient = new Pocketbase(POCKETBASE_API_URL);
 

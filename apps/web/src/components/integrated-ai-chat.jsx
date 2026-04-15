@@ -1,74 +1,154 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useAnimatedText } from '@/hooks/use-animated-text';
-import { useIntegratedAi } from '@/hooks/use-integrated-ai';
 
 const MAX_IMAGES = 10;
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
 const VALID_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+
 const getImageKey = file => `${file.name}:${file.size}:${file.lastModified}`;
 
 export default function IntegratedAiChat() {
+
+	// 🔥 estados
+	const [localMessages, setLocalMessages] = useState([]);
 	const [input, setInput] = useState('');
 	const [selectedImages, setSelectedImages] = useState([]);
-	const { messages, isStreaming, isLoadingHistory, sendMessage, clearMessages } = useIntegratedAi();
+
 	const messagesEndRef = useRef(null);
 	const fileInputRef = useRef(null);
 
-	const imagePreviews = useMemo(() => selectedImages.map(file => ({
-		key: getImageKey(file),
-		file,
-		url: URL.createObjectURL(file),
-	})), [selectedImages]);
+	// 🔥 llamada a tu backend
+	const generateRecipe = async (ingredients) => {
+		for (let i = 0; i < 3; i++) {
+			try {
+				const res = await fetch("http://localhost:3001/generate-recipe", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+					},
+					body: JSON.stringify({ ingredients }),
+				});
 
-	useEffect(() => () => {
-		imagePreviews.forEach(preview => URL.revokeObjectURL(preview.url));
+				const data = await res.json();
+
+				if (data.error) throw new Error("Gemini error");
+
+				return data;
+			} catch (err) {
+				console.log(`Intento ${i + 1} fallido...`);
+				await new Promise(r => setTimeout(r, 1000));
+			}
+		}
+
+		return null;
+	};
+
+	// 🔥 previews imágenes
+	const imagePreviews = useMemo(() =>
+		selectedImages.map(file => ({
+			key: getImageKey(file),
+			file,
+			url: URL.createObjectURL(file),
+		})),
+		[selectedImages]
+	);
+
+	// limpiar memoria imágenes
+	useEffect(() => {
+		return () => {
+			imagePreviews.forEach(preview => URL.revokeObjectURL(preview.url));
+		};
 	}, [imagePreviews]);
 
-	const lastMessage = messages[messages.length - 1];
-	const isLastMessageStreaming = isStreaming && lastMessage?.role === 'assistant';
-	const animatedText = useAnimatedText(isLastMessageStreaming ? lastMessage.content : '');
-
+	// scroll automático
 	useEffect(() => {
-		const scrollToBottom = () => {
-			if (messagesEndRef.current) {
-				messagesEndRef.current.scrollIntoView({
-					behavior: 'smooth',
-					block: 'end',
-				});
-			}
-		};
+		if (messagesEndRef.current) {
+			messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+		}
+	}, [localMessages]);
 
-		scrollToBottom();
-	}, [messages]);
-
-	const handleSubmit = useCallback((e) => {
+	// 🔥 SUBMIT (IA)
+	const handleSubmit = useCallback(async (e) => {
 		e.preventDefault();
 
 		const trimmed = input.trim();
+		if (!trimmed) return;
 
-		if ((!trimmed && selectedImages.length === 0) || isStreaming) {
+		setInput('');
+
+		// 👤 mensaje usuario
+		const userMessage = {
+			role: "user",
+			content: trimmed
+		};
+
+		setLocalMessages(prev => [...prev, userMessage]);
+
+		// 🤖 loader
+		setLocalMessages(prev => [
+			...prev,
+			{ role: "assistant", content: "Generando receta... 🍳" }
+		]);
+
+		const recipe = await generateRecipe(trimmed);
+
+		if (!recipe || !recipe.ingredients || !recipe.steps) {
+			setLocalMessages(prev => [
+				...prev.slice(0, -1),
+				{ role: "assistant", content: "⚠️ La IA está saturada, intenta de nuevo en unos segundos." }
+			]);
 			return;
 		}
 
-		setInput('');
-		sendMessage(trimmed, selectedImages);
-		setSelectedImages([]);
-	}, [input, selectedImages, isStreaming, sendMessage]);
+		if (!recipe) {
+			setLocalMessages(prev => [
+				...prev.slice(0, -1),
+				{ role: "assistant", content: "Error generando receta 😢" }
+			]);
+			return;
+		}
 
+		// 🎨 formateo bonito
+		const aiText = `
+🍽️ ${recipe.name}
+
+${recipe.description}
+
+⏱️ Tiempo: ${recipe.cookingTime} min
+🔥 Dificultad: ${recipe.difficulty}
+
+Ingredientes:
+${recipe.ingredients.map(i => `- ${i.quantity} ${i.unit} ${i.name}`).join("\n")}
+
+Pasos:
+${recipe.steps.map((s, i) => `${i + 1}. ${s}`).join("\n")}
+`;
+
+		setLocalMessages(prev => [
+			...prev.slice(0, -1),
+			{ role: "assistant", content: aiText }
+		]);
+
+	}, [input]);
+
+	// 📎 subir imágenes (opcional, lo dejamos)
 	const handleImageSelect = useCallback((e) => {
 		const files = Array.from(e.target.files || []);
-		const validFiles = files.filter(file => VALID_IMAGE_TYPES.includes(file.type) && file.size <= MAX_IMAGE_SIZE);
+		const validFiles = files.filter(file =>
+			VALID_IMAGE_TYPES.includes(file.type) &&
+			file.size <= MAX_IMAGE_SIZE
+		);
 
-		setSelectedImages((prev) => {
-			const uniqueFilesMap = new Map(prev.map(file => [getImageKey(file), file]));
-			validFiles.forEach(file => uniqueFilesMap.set(getImageKey(file), file));
-			return Array.from(uniqueFilesMap.values()).slice(0, MAX_IMAGES);
+		setSelectedImages(prev => {
+			const map = new Map(prev.map(f => [getImageKey(f), f]));
+			validFiles.forEach(f => map.set(getImageKey(f), f));
+			return Array.from(map.values()).slice(0, MAX_IMAGES);
 		});
 
 		if (fileInputRef.current) {
 			fileInputRef.current.value = '';
 		}
-	}, [fileInputRef]);
+
+	}, []);
 
 	const removeImage = useCallback((index) => {
 		setSelectedImages(prev => prev.filter((_, i) => i !== index));
@@ -76,56 +156,43 @@ export default function IntegratedAiChat() {
 
 	return (
 		<div className="flex flex-col h-full max-w-2xl mx-auto">
+
+			{/* HEADER */}
 			<div className="flex items-center justify-between p-4 border-b">
-				<h2 className="text-lg font-semibold">AI Chat</h2>
-			{messages.length > 0 && (
-				<button
-					onClick={clearMessages}
-					disabled={isStreaming}
-					className="text-sm text-gray-500 hover:text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
-				>
-					Clear
-				</button>
-			)}
+				<h2 className="text-lg font-semibold">AI Recipes</h2>
+
+				{localMessages.length > 0 && (
+					<button
+						onClick={() => setLocalMessages([])}
+						className="text-sm text-gray-500 hover:text-gray-700"
+					>
+						Clear
+					</button>
+				)}
 			</div>
 
-			<div className="flex-1 overflow-y-auto p-4 space-y-4 scroll-smooth">
-				{isLoadingHistory && (
-					<div className="text-center text-sm text-gray-400 py-4">Loading history...</div>
-				)}
-				{messages.map((msg, i) => {
-					const isLastStreamingMessage = isStreaming && i === messages.length - 1 && msg.role === 'assistant';
-					const displayContent = isLastStreamingMessage ? animatedText : msg.content;
+			{/* CHAT */}
+			<div className="flex-1 overflow-y-auto p-4 space-y-4">
 
-					return (
-						<div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-							<div
-								className={`max-w-[80%] rounded-lg px-4 py-2 ${
-									msg.role === 'user'
-										? 'bg-blue-600 text-white'
-										: 'bg-gray-100 text-gray-900'
+				{localMessages.map((msg, i) => (
+					<div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+						<div
+							className={`max-w-[80%] rounded-lg px-4 py-2 ${msg.role === 'user'
+								? 'bg-blue-600 text-white'
+								: 'bg-gray-100 text-gray-900'
 								}`}
-							>
-								<p className="whitespace-pre-wrap">{displayContent}</p>
-								{msg.images?.map((url, j) => (
-									<img
-										key={j}
-										src={url}
-										alt="AI generated"
-										className="mt-2 rounded max-w-full"
-									/>
-								))}
-								{msg.role === 'assistant' && isStreaming && i === messages.length - 1 && !msg.content && (
-									<span className="inline-block w-2 h-4 bg-gray-400 animate-pulse" />
-								)}
-							</div>
+						>
+							<p className="whitespace-pre-wrap">{msg.content}</p>
 						</div>
-					);
-				})}
+					</div>
+				))}
+
 				<div ref={messagesEndRef} />
 			</div>
 
+			{/* INPUT */}
 			<div className="p-4 border-t">
+
 				{selectedImages.length > 0 && (
 					<div className="mb-3 flex gap-2 flex-wrap">
 						{imagePreviews.map(({ key, file, url }, index) => (
@@ -138,7 +205,7 @@ export default function IntegratedAiChat() {
 								<button
 									type="button"
 									onClick={() => removeImage(index)}
-									className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+									className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 text-xs"
 								>
 									×
 								</button>
@@ -146,7 +213,9 @@ export default function IntegratedAiChat() {
 						))}
 					</div>
 				)}
+
 				<form onSubmit={handleSubmit} className="flex gap-2">
+
 					<input
 						ref={fileInputRef}
 						type="file"
@@ -154,32 +223,31 @@ export default function IntegratedAiChat() {
 						multiple
 						onChange={handleImageSelect}
 						className="hidden"
-						disabled={isStreaming || isLoadingHistory}
 					/>
+
 					<button
 						type="button"
 						onClick={() => fileInputRef.current?.click()}
-						className="rounded-lg border px-3 py-2 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
-						disabled={isStreaming || isLoadingHistory || selectedImages.length >= MAX_IMAGES}
-						title="Upload images"
+						className="rounded-lg border px-3 py-2 hover:bg-gray-100"
 					>
 						📎
 					</button>
+
 					<input
 						type="text"
 						value={input}
 						onChange={e => setInput(e.target.value)}
-						placeholder="Type a message..."
-						className="flex-1 rounded-lg border px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-						disabled={isStreaming || isLoadingHistory}
+						placeholder="Ej: pollo, arroz, limón"
+						className="flex-1 rounded-lg border px-4 py-2"
 					/>
+
 					<button
 						type="submit"
-						disabled={isStreaming || (!input.trim() && selectedImages.length === 0)}
-						className="rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+						className="rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
 					>
 						Send
 					</button>
+
 				</form>
 			</div>
 		</div>
