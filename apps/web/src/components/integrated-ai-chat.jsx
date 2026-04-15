@@ -20,7 +20,7 @@ export default function IntegratedAiChat() {
 	const generateRecipe = async (ingredients) => {
 		for (let i = 0; i < 3; i++) {
 			try {
-				const res = await fetch("http://localhost:3001/generate-recipe", {
+				const res = await fetch("api-production-e318.up.railway.app", {
 					method: "POST",
 					headers: {
 						"Content-Type": "application/json",
